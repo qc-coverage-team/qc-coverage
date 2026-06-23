@@ -165,8 +165,8 @@ const TEAM_TZ = {
 const ET_MANAGERS = ['panepinto','restivo'];
 
 // RIV team people to pull in
-const RIV_VP       = ['jen huber','jennifer huber'];        // every day, own group
-const RIV_WEEKEND  = ['gino donatelli','cici chu','khari fisher']; // weekends only
+const RIV_VP       = ['jen huber','jennifer huber','jen ']; // every day, own group
+const RIV_WEEKEND  = ['gino','cici','khari']; // weekends only — matched by first/last name fragment
 
 const TEAM_ORDER_BASE = ['*QC NY','§QC IN','-QC AMS','-QC WAW','#QC Manager & Supervisor','QC Director','VP'];
 const TEAM_LABELS_EXTRA = { 'VP': 'VP' };
@@ -324,6 +324,7 @@ async function fetchDay(ds, force){
   const date = new Date(ds+'T12:00:00');
   const dayOfWeek = date.getDay(); // 0=Sun, 6=Sat
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  console.log('Date:', ds, 'Day:', dayOfWeek, 'isWeekend:', isWeekend);
   try {
     let rivOffset = null;
     do {
@@ -334,8 +335,8 @@ async function fetchDay(ds, force){
       const rd = await rr.json();
       (rd.records||[]).forEach(rec => {
         const name = (rec.fields['Employees']||'').toLowerCase();
-        const isVP = RIV_VP.some(n => name.includes(n.split(' ')[1]||n));
-        const isWeekendHelper = RIV_WEEKEND.some(n => name.includes(n.split(' ')[1]||n));
+        const isVP = RIV_VP.some(n => name.includes(n.toLowerCase()));
+        const isWeekendHelper = RIV_WEEKEND.some(n => n.toLowerCase().split(' ').some(part => part.length > 3 && name.includes(part)));
         if(isVP || (isWeekendHelper && isWeekend)){
           // Tag team field so render knows where to put them
           rec.fields['Team (from Employees)'] = isVP ? 'VP' : '*QC NY';
