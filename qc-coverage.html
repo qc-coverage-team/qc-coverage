@@ -360,8 +360,17 @@ function showSkeleton(){
     +'<div class="stat"><div class="stat-n skel" style="width:40px;height:32px;margin:0 auto 4px"></div><div class="skel" style="height:11px;width:55px;margin:0 auto"></div></div>'
     +'</div>';
 
-  TEAM_ORDER.forEach(team => {
-    const count = TEAM_MEMBERS[team].length;
+  const SKEL_TEAMS = [
+    {label:'QC NY · ET', count:5},
+    {label:'QC IN · IST', count:5},
+    {label:'QC AMS · CET', count:4},
+    {label:'QC WAW · CET', count:7},
+    {label:'Managers', count:4},
+    {label:'QC Director', count:1}
+  ];
+
+  SKEL_TEAMS.forEach(({label, count}) => {
+    const team = label; const fake = true;
     let axisHtml = '<div class="axis">';
     AXIS_HOURS.forEach((h,i) => {
       axisHtml += `<div class="axis-tick" style="left:${pct(h)}">${AXIS_LABELS[i]}</div>`;
@@ -385,7 +394,7 @@ function showSkeleton(){
     }
 
     html += `<div class="card">
-      <div class="team-name">${TEAM_LABELS[team]}</div>
+      <div class="team-name">${label}</div>
       ${axisHtml}
       <div style="position:relative">${rowsHtml}</div>
     </div>`;
