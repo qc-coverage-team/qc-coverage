@@ -481,15 +481,7 @@ function render(records, ds){
     const status = shiftStatus(d.shift);
     if(status==='in' && d.startET!==null){
       totalIn++;
-      const homeTzOff = (() => {
-        const tf = d.teamField || '';
-        const nl = personName.toLowerCase();
-        if(tf === '§QC IN') return 5.5;
-        if(tf === '-QC AMS' || tf === '-QC WAW') return 2;
-        if(tf === 'QC Director' || (tf.includes('Manager') && !ET_MANAGERS.some(m=>nl.includes(m)))) return 2;
-        return -4;
-      })();
-      const sUTC = d.localStart !== null ? ((d.localStart - homeTzOff) + 24) % 24 : d.startET;
+      const sUTC = d.startET; // already UTC from Airtable Start Date
       const s = ((sUTC + tzOff) + 24) % 24;
       const e = s + (d.duration || 0);
       for(let h=Math.floor(s); h<Math.ceil(e); h++){
@@ -579,25 +571,9 @@ function render(records, ds){
       if(status==='in' && data && data.startET!==null){
         // data.startET is UTC hours; convert to display timezone
         const tzOff = TZ_OFFSETS[tz] !== undefined ? TZ_OFFSETS[tz] : -4;
-        // Use localStart (from Comment field) + team home TZ to get accurate UTC
-        // Team home TZ offsets: NY/Mgr = -4, AMS/WAW = +2, IN = +5.5
-        const homeTzOff = (() => {
-          const tf = data.teamField || '';
-          const nl = name.toLowerCase();
-          if(tf.includes('IN') || tf === '§QC IN') return 5.5;
-          if(tf === '-QC AMS' || tf === '-QC WAW') return 2;
-          if(tf === 'QC Director' || (tf.includes('Manager') && !ET_MANAGERS.some(m=>nl.includes(m)))) return 2;
-          return -4; // ET (NY, Panepinto, Restivo)
-        })();
-        let sUTC, dur;
-        if(data.localStart !== null) {
-          // Convert local start to UTC, then to display TZ
-          sUTC = ((data.localStart - homeTzOff) + 24) % 24;
-          dur  = data.duration || 0;
-        } else {
-          sUTC = data.startET;
-          dur  = data.duration || 0;
-        }
+        // Use Start Date UTC directly for positioning - it's already stored as UTC in Airtable
+        const sUTC = data.startET;
+        const dur = data.duration || 0;
         const s = ((sUTC + tzOff) + 24) % 24;
         const e = s + dur;
         const makeBar=(bs,be)=>{
