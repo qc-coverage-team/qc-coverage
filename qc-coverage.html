@@ -418,7 +418,12 @@ function render(records, ds){
   const peopleMap = {};
   records.forEach(rec => {
     const f = rec.fields;
-    const employees = resolveEmployees(f['Employees']);
+    // Use 'Name (from Employees)' if available (already resolved by Airtable)
+    // Fall back to resolving 'Employees' field manually
+    const nameFromEmployees = f['Name (from Employees)'];
+    const employees = nameFromEmployees
+      ? (Array.isArray(nameFromEmployees) ? nameFromEmployees : [nameFromEmployees]).map(n=>String(n).trim()).filter(Boolean)
+      : resolveEmployees(f['Employees']);
     const teamField  = Array.isArray(f['Team (from Employees)']) ? f['Team (from Employees)'][0] : (f['Team (from Employees)']||'');
     const shift    = f['Shift']||'';
     const comment  = f['Comment']||f['Comments']||f['comment']||'';
@@ -444,9 +449,6 @@ function render(records, ds){
 
     employees.forEach(name => {
       if(!peopleMap[name]) peopleMap[name] = [];
-      if(name && (name.toLowerCase().includes('jyoti') || name.toLowerCase().includes('nagesh'))) {
-        console.log('DEBUG', name, 'startET(UTC):', startET, 'duration:', duration, 'teamField:', teamField, 'sd:', sd);
-      }
       peopleMap[name].push({shift, startET, endET, localStart, localEnd, duration, teamField, personName: name});
     });
   });
