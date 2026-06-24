@@ -446,13 +446,17 @@ function render(records, ds){
 
     // Determine home TZ offset from team field
     const tf2 = String((Array.isArray(teamField) ? teamField[0] : teamField) || '');
-    const isIndiaTeam = tf2.includes('QC IN') || tf2.includes('IN');
+    const isIndiaTeam = tf2.includes('QC IN');
+    // For managers, check if they're ET-based by name
+    const ET_MANAGER_NAMES = ['panepinto','restivo','torres','howard','gannello'];
+    const empNamesLower = employees.map(n=>n.toLowerCase());
+    const isETManager = ET_MANAGER_NAMES.some(m => empNamesLower.some(n=>n.includes(m)));
     const homeOffset = (() => {
       if(isIndiaTeam) return 5.5;
       if(tf2.includes('AMS') || tf2.includes('WAW')) return 2;
       if(tf2.includes('Director')) return 2;
-      if(tf2.includes('Manager') || tf2.includes('Supervisor')) return 2;
-      return -4; // ET default (NY, RIV)
+      if((tf2.includes('Manager') || tf2.includes('Supervisor')) && !isETManager) return 2;
+      return -4; // ET default (NY, ET managers, RIV)
     })();
 
     if(sd){
@@ -905,8 +909,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
   document.getElementById('tz-select').addEventListener('change', ()=>{
     updateDateLine();
     const ds = picker.value || todayStr;
-    if(_cache[ds]) render(_cache[ds], ds);
-    else loadDate(ds);
+    // Always re-render with current data when TZ changes
+    if(_cache[ds] && _cache[ds].length > 0) {
+      render(_cache[ds], ds);
+    } else {
+      loadDate(ds);
+    }
   });
 
   document.getElementById('team-filter').addEventListener('change', ()=>{
