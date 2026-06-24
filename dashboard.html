@@ -445,13 +445,13 @@ function render(records, ds){
     }
 
     // Determine home TZ offset from team field
-    const tf2 = (Array.isArray(teamField) ? teamField[0] : teamField) || '';
-    const isIndiaTeam = tf2 === '§QC IN';
+    const tf2 = String((Array.isArray(teamField) ? teamField[0] : teamField) || '');
+    const isIndiaTeam = tf2.includes('QC IN') || tf2.includes('IN');
     const homeOffset = (() => {
       if(isIndiaTeam) return 5.5;
-      if(tf2 === '-QC AMS' || tf2 === '-QC WAW') return 2;
-      if(tf2 === 'QC Director') return 2;
-      if(tf2 === '#QC Manager & Supervisor') return 2; // mostly CET, ET managers handled separately
+      if(tf2.includes('AMS') || tf2.includes('WAW')) return 2;
+      if(tf2.includes('Director')) return 2;
+      if(tf2.includes('Manager') || tf2.includes('Supervisor')) return 2;
       return -4; // ET default (NY, RIV)
     })();
 
