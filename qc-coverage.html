@@ -227,23 +227,26 @@ const CALENDARS = {
 let _activeCalendar = 'QC';
 
 function switchCalendar(){
-  const cal = document.getElementById('calendar-select').value;
-  _activeCalendar = cal;
+  const calKey = document.getElementById('calendar-select').value;
+  const cal = CALENDARS[calKey];
+  _activeCalendar = calKey;
   // Clear cache so fresh data is fetched for this calendar
   _cache = {};
-  _tableId = CALENDARS[cal].tableId;
+  _tableId = null; // force reset so getTableId picks up new calendar
   _employeeMap = null;
   // Update team order and labels
   TEAM_ORDER.length = 0;
-  CALENDARS[cal].teamOrder.forEach(t => TEAM_ORDER.push(t));
-  Object.assign(TEAM_LABELS, CALENDARS[cal].teamLabels);
+  cal.teamOrder.forEach(t => TEAM_ORDER.push(t));
+  // Reset TEAM_LABELS and TEAM_TZ to match new calendar
+  Object.keys(TEAM_LABELS).forEach(k => delete TEAM_LABELS[k]);
+  Object.assign(TEAM_LABELS, cal.teamLabels);
   // Update team filter dropdown
   const tf = document.getElementById('team-filter');
   tf.innerHTML = '<option value="ALL">All teams</option>';
-  CALENDARS[cal].teamOrder.forEach(t => {
+  cal.teamOrder.forEach(t => {
     const opt = document.createElement('option');
     opt.value = t;
-    opt.textContent = CALENDARS[cal].teamLabels[t] || t;
+    opt.textContent = cal.teamLabels[t] || t;
     tf.appendChild(opt);
   });
   // Reload
@@ -481,6 +484,12 @@ async function fetchCoordDay(ds) {
 
 async function fetchDay(ds, force){
   if(_cache[ds] && !force) return;
+  // Coordination team has completely different structure - handle separately
+  if(_activeCalendar === 'COORD') {
+    _cache[ds] = await fetchCoordDay(ds);
+    lsSave(ds, _cache[ds]);
+    return;
+  }
   const tid = await getTableId();
   const cal = CALENDARS[_activeCalendar];
   const activeBase = cal ? cal.baseId : BASE;
@@ -495,13 +504,6 @@ async function fetchDay(ds, force){
     records = records.concat(d.records||[]);
     offset = d.offset||null;
   } while(offset);
-
-  // Coordination team uses a completely different data structure
-  if(_activeCalendar === 'COORD') {
-    _cache[ds] = await fetchCoordDay(ds);
-    lsSave(ds, _cache[ds]);
-    return;
-  }
 
   // Also fetch RIV people from RIV table (only when in QC mode)
   if(_activeCalendar !== 'QC') {
