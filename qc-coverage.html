@@ -630,6 +630,11 @@ function render(records, ds){
 
     let startET=null, endET=null, localStart=null, localEnd=null;
 
+    // Determine home TZ offset from team field
+    const tf2 = String((Array.isArray(teamField) ? teamField[0] : teamField) || '');
+    const isIndiaTeam = tf2.includes('QC IN');
+    const isCoordTeam = _activeCalendar === 'COORD';
+
     // Parse Comment field for local shift time
     // Comment blank or '-' means no local time available
     // Coordination team: always use Start Date directly (already UTC)
@@ -642,11 +647,6 @@ function render(records, ds){
         localEnd   = pm(parts[1]);
       }
     }
-
-    // Determine home TZ offset from team field
-    const tf2 = String((Array.isArray(teamField) ? teamField[0] : teamField) || '');
-    const isIndiaTeam = tf2.includes('QC IN');
-    const isCoordTeam = _activeCalendar === 'COORD';
     // For managers, check if they're ET-based by name
     const ET_MANAGER_NAMES = ['panepinto','restivo','torres','howard','gannello'];
     const empNamesLower = employees.map(n=>n.toLowerCase());
