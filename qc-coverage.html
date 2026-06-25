@@ -205,13 +205,21 @@ const CALENDARS = {
     },
     // Map person names to location-based teams
     memberTeams: {
-      'Gino Donatelli':'RIV US','Cici Chu':'RIV US','Michael Berg':'RIV US','TKhari Fisher':'RIV US',
+      // US
+      'Gino Donatelli':'RIV US','Cici Chu':'RIV US','Michael Berg':'RIV US',
+      "T'Khari Fisher":"RIV US",'TKhari Fisher':'RIV US',
+      // Canada
       'Jude Patrao':'RIV Canada','Joshua Brooker':'RIV Canada',
+      // India
       'Deodas Saha':'RIV India','Ankush Keripale':'RIV India','Bijan Sahoo':'RIV India',
       'Ronan Rozario':'RIV India','Shabnam Sultana':'RIV India','Yash Amrite':'RIV India',
+      // Netherlands
       'Monika Obracaj':'RIV Netherlands','Jorg Rebel':'RIV Netherlands',
+      // Poland
       'Karol Dzieszko':'RIV Poland',
+      // Cyprus
       'Christos Georgiou':'RIV Cyprus',
+      // Management
       'Jeevan Chopra':'RIV Team Manager',
       'Jen Huber':'RIV Team Sr Director'
     }
@@ -299,15 +307,12 @@ function onCalendarChange(){
   const teamFilter = document.getElementById('team-filter');
 
   if(calKey === 'ALL'){
-    // Show all calendars - hide sub-team filter
+    // Show all calendars merged - hide sub-team filter
     teamFilter.style.display = 'none';
     teamFilter.value = 'ALL';
-    // Load QC as default when ALL is selected
-    setActiveCalendar('QC');
-    // But show all teams across all calendars - for now just show QC
-    // TODO: merge all calendars
+    updateTzDropdown('QC');
     const ds = document.getElementById('date-picker').value || dateStr(new Date());
-    loadDate(ds);
+    loadAllCalendars(ds);
     return;
   }
 
@@ -424,11 +429,14 @@ function teamForName(name, teamFromAirtable){
   // For RIV calendar, always use location-based team mapping (ignore Airtable team field)
   if(_activeCalendar === 'RIV') {
     const rivTeams = CALENDARS.RIV.memberTeams;
+    // Exact match first
     if(rivTeams[name]) return rivTeams[name];
-    // Try partial match on last name
-    const match = Object.keys(rivTeams).find(k =>
-      k.split(' ').some(part => part.length > 3 && name.toLowerCase().includes(part.toLowerCase()))
-    );
+    // Partial last name match
+    const nameLower = name.toLowerCase();
+    const match = Object.keys(rivTeams).find(k => {
+      const parts = k.toLowerCase().split(' ');
+      return parts.some(p => p.length > 3 && nameLower.includes(p));
+    });
     if(match) return rivTeams[match];
     return 'RIV US'; // fallback
   }
@@ -1027,6 +1035,106 @@ function render(records, ds){
 
 }
 
+// ── All Calendars merged view ─────────────────────────────────────────────
+let _allCalendarCache = {}; // { 'YYYY-MM-DD': { QC: [], RIV: [], COORD: [] } }
+
+async function loadAllCalendars(ds){
+  _rendering = ds;
+  document.getElementById('stale').style.display = 'none';
+
+  // Show skeleton
+  showSkeleton();
+
+  try {
+    // Fetch from all three calendars in parallel
+    const cached = _allCalendarCache[ds];
+    let qcRecs, rivRecs, coordRecs;
+
+    if(cached){
+      qcRecs = cached.QC;
+      rivRecs = cached.RIV;
+      coordRecs = cached.COORD;
+    } else {
+      // Save and restore active calendar state for each fetch
+      const origCal = _activeCalendar;
+      const origTableId = _tableId;
+      const origCache = _cache;
+
+      // Fetch QC
+      _activeCalendar = 'QC'; _tableId = CALENDARS.QC.tableId; _cache = {};
+      if(!_employeeMap) await loadEmployeeMap();
+      await fetchDay(ds, false);
+      qcRecs = _cache[ds] || [];
+
+      // Fetch RIV
+      _activeCalendar = 'RIV'; _tableId = CALENDARS.RIV.tableId; _cache = {};
+      await fetchDay(ds, false);
+      rivRecs = _cache[ds] || [];
+
+      // Fetch COORD
+      _activeCalendar = 'COORD'; _tableId = CALENDARS.COORD.tableId; _cache = {};
+      coordRecs = await fetchCoordDay(ds);
+
+      // Restore original state
+      _activeCalendar = origCal; _tableId = origTableId; _cache = origCache;
+
+      _allCalendarCache[ds] = { QC: qcRecs, RIV: rivRecs, COORD: coordRecs };
+    }
+
+    // Merge all records and render with combined team order
+    const allRecords = [...qcRecs, ...rivRecs, ...coordRecs];
+
+    // Build a merged team order showing all groups
+    const mergedOrder = [
+      // QC teams
+      '*QC NY','§QC IN','-QC AMS','-QC WAW','#QC Manager & Supervisor','QC Director','VP',
+      // RIV teams
+      'RIV US','RIV Canada','RIV India','RIV Netherlands','RIV Poland','RIV Cyprus','RIV Team Manager','RIV Team Sr Director',
+      // Coord teams
+      'Coordination Team','Coordination Supervisor','Coordination Manager'
+    ];
+    const mergedLabels = {
+      ...CALENDARS.QC.teamLabels,
+      ...CALENDARS.RIV.teamLabels,
+      ...CALENDARS.COORD.teamLabels
+    };
+
+    // Temporarily set merged state for render
+    const origOrder = [...TEAM_ORDER];
+    const origLabels = {...TEAM_LABELS};
+    const origCal = _activeCalendar;
+
+    TEAM_ORDER.length = 0;
+    mergedOrder.forEach(t => TEAM_ORDER.push(t));
+    Object.keys(TEAM_LABELS).forEach(k => delete TEAM_LABELS[k]);
+    Object.assign(TEAM_LABELS, mergedLabels);
+    _activeCalendar = 'QC'; // use QC logic for time conversion
+
+    render(allRecords, ds);
+
+    // Restore
+    TEAM_ORDER.length = 0;
+    origOrder.forEach(t => TEAM_ORDER.push(t));
+    Object.keys(TEAM_LABELS).forEach(k => delete TEAM_LABELS[k]);
+    Object.assign(TEAM_LABELS, origLabels);
+    _activeCalendar = origCal;
+
+    document.getElementById('lastupdated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+
+    // Background prefetch adjacent days
+    setTimeout(()=>{
+      [-1,1,2,3].forEach(n=>{
+        const adj = addDays(new Date(ds+'T12:00:00'),n);
+        const ads = dateStr(adj);
+        if(!_allCalendarCache[ads]) loadAllCalendars(ads).catch(()=>{});
+      });
+    }, 1000);
+
+  } catch(err){
+    document.getElementById('main').innerHTML = `<div class="error"><strong>Could not load data:</strong> ${err.message}</div>`;
+  }
+}
+
 // ── Load flow ────────────────────────────────────────────────────────────────
 async function loadDate(ds, fromRefresh){
   _rendering = ds;
@@ -1076,8 +1184,15 @@ async function loadDate(ds, fromRefresh){
 
 function hardRefresh(){
   const ds = document.getElementById('date-picker').value || dateStr(new Date());
-  _cache[ds] = null;
-  loadDate(ds, true);
+  const calKey = document.getElementById('calendar-select').value;
+  if(calKey === 'ALL'){
+    // Clear all calendar caches
+    _allCalendarCache = {};
+    loadAllCalendars(ds);
+  } else {
+    _cache[ds] = null;
+    loadDate(ds, true);
+  }
 }
 
 // ── Week View ─────────────────────────────────────────────────────────────
@@ -1299,7 +1414,12 @@ document.addEventListener('DOMContentLoaded', ()=>{
   setTimeout(updateDateLine, 10);
 
   // Wire up controls
-  picker.addEventListener('change', ()=>{ updateDateLine(); loadDate(picker.value); });
+  picker.addEventListener('change', ()=>{
+    updateDateLine();
+    const calKey = document.getElementById('calendar-select').value;
+    if(calKey === 'ALL') loadAllCalendars(picker.value);
+    else loadDate(picker.value);
+  });
   document.getElementById('tz-select').addEventListener('change', ()=>{
     updateDateLine();
     const ds = picker.value || todayStr;
@@ -1358,7 +1478,11 @@ document.addEventListener('DOMContentLoaded', ()=>{
   updateTzDropdown(initialCalKey);
 
   // Initial load — always pass todayStr explicitly
-  setTimeout(()=>{ loadDate(todayStr); }, 50);
+  setTimeout(()=>{
+    const calKey = document.getElementById('calendar-select').value;
+    if(calKey === 'ALL') loadAllCalendars(todayStr);
+    else loadDate(todayStr);
+  }, 50);
 
   // Auto-refresh every 20 minutes
   setInterval(()=>{
