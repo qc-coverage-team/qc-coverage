@@ -208,18 +208,20 @@ const CALENDARS = {
     ptoTableId: 'tbl4cDRiTwm5t21fv',
     employeeTableId: null,
     token: 'patKvCGAXS9aCVPyq.432d7a78b4001ed2d60b5f03dd645d4fe413524ce03e1833e3a08d72d2481913',
-    teamOrder: ['Coordination Manager','Coordination Supervisor','Coordination Team'],
+    teamOrder: ['Coordination Team','Coordination Supervisor','Coordination Manager'],
     teamLabels: {
-      'Coordination Manager':'Manager · ET',
+      'Coordination Team':'Coordination Team',
       'Coordination Supervisor':'Supervisor · ET',
-      'Coordination Team':'Coordination Team'
+      'Coordination Manager':'Manager · ET'
     },
     // Static member info since table has no team field
+    // homeOffset: hours to subtract from local time to get UTC
+    // EDT (summer ET) = UTC-4, EST (winter ET) = UTC-5, CET (summer) = UTC+2
     members: {
-      'Halley Dewey':  { team: 'Coordination Manager',    homeOffset: -5 },
-      'Samantha Berges': { team: 'Coordination Supervisor', homeOffset: -5 },
-      'Tessa Iacono':  { team: 'Coordination Team',        homeOffset: -5 },
-      'Niccolò Rinaldi': { team: 'Coordination Team',      homeOffset: 2  }
+      'Halley Dewey':    { team: 'Coordination Manager',    homeOffset: -4 },
+      'Samantha Berges': { team: 'Coordination Supervisor', homeOffset: -4 },
+      'Tessa Iacono':    { team: 'Coordination Team',       homeOffset: -4 },
+      'Niccolò Rinaldi': { team: 'Coordination Team',       homeOffset: 2  }
     }
   }
 };
@@ -829,8 +831,8 @@ function render(records, ds){
     </div>`;
   });
 
-  // Gap detection
-  const gapHours = hourCount.map((c,h)=>c===0?h:null).filter(h=>h!==null);
+  // Gap detection (not shown for Coordination team)
+  const gapHours = _activeCalendar === 'COORD' ? [] : hourCount.map((c,h)=>c===0?h:null).filter(h=>h!==null);
   if(gapHours.length > 0){
     const gapRanges = [];
     let rangeStart = gapHours[0], prev = gapHours[0];
