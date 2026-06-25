@@ -126,6 +126,11 @@ select,input[type=date]{font-size:13px;padding:6px 10px;border-radius:8px;border
           <option value="QC Director">Director</option>
           <option value="VP">VP</option>
         </select>
+        <select id="calendar-select" onchange="switchCalendar()">
+          <option value="QC">QC Team</option>
+          <option value="RIV">RIV Team</option>
+          <option value="COORD">Coordination Team</option>
+        </select>
         <button class="btn btn-gray" id="default-btn" onclick="saveDefault()">&#9733; Set default</button>
         <button class="btn btn-gray" id="week-btn" onclick="toggleWeekView()">&#128197; Week view</button>
         <button class="btn btn-dark" onclick="hardRefresh()">&#8635; Refresh</button>
@@ -164,9 +169,87 @@ const TEAM_TZ = {
 // People in Managers group who are on ET
 const ET_MANAGERS = ['panepinto','restivo'];
 
-// RIV team people to pull in
+// RIV team people to pull in (when in QC mode)
 const RIV_VP       = ['jen huber','jennifer huber','jen ']; // every day, own group
 const RIV_WEEKEND  = ['gino','cici','khari']; // weekends only — matched by first/last name fragment
+
+// Calendar configs
+const CALENDARS = {
+  QC: {
+    label: 'QC Team',
+    baseId: 'appeY9hqlkk9N7dfk',
+    tableId: 'tblJeFRbjzlOdxnpV',
+    employeeTableId: 'tbl0RqpYKx6zeP2yO',
+    token: 'patf4aA7ZMZHg9SzH.bc53d633521da013138e70221dc328a3719445cbfdeaabbadace8d766747a448',
+    teamOrder: ['*QC NY','§QC IN','-QC AMS','-QC WAW','#QC Manager & Supervisor','QC Director','VP'],
+    teamLabels: {
+      '*QC NY':'QC NY · ET','§QC IN':'QC IN · IST','-QC AMS':'QC AMS · CET',
+      '-QC WAW':'QC WAW · CET','#QC Manager & Supervisor':'Managers & Supervisors',
+      'QC Director':'QC Director','VP':'VP'
+    }
+  },
+  RIV: {
+    label: 'RIV Team',
+    baseId: 'appeY9hqlkk9N7dfk',
+    tableId: 'tblnDTIxNAC0usEWF',
+    employeeTableId: null,
+    token: 'patf4aA7ZMZHg9SzH.bc53d633521da013138e70221dc328a3719445cbfdeaabbadace8d766747a448',
+    teamOrder: ['#RIV Team','RIV Team Manager','RIV Team Sr Director'],
+    teamLabels: {
+      '#RIV Team':'RIV Team · ET',
+      'RIV Team Manager':'RIV Manager · ET',
+      'RIV Team Sr Director':'RIV Sr Director · ET'
+    }
+  },
+  COORD: {
+    label: 'Coordination Team',
+    baseId: 'app2bP6LQM1NwtNr4',
+    tableId: 'tbldBZAc8ePqBmUY9',
+    ptoTableId: 'tbl4cDRiTwm5t21fv',
+    employeeTableId: null,
+    token: 'patKvCGAXS9aCVPyq.432d7a78b4001ed2d60b5f03dd645d4fe413524ce03e1833e3a08d72d2481913',
+    teamOrder: ['Coordination Manager','Coordination Supervisor','Coordination Team'],
+    teamLabels: {
+      'Coordination Manager':'Manager · ET',
+      'Coordination Supervisor':'Supervisor · ET',
+      'Coordination Team':'Coordination Team'
+    },
+    // Static member info since table has no team field
+    members: {
+      'Halley Dewey':  { team: 'Coordination Manager',    homeOffset: -5 },
+      'Samantha Berges': { team: 'Coordination Supervisor', homeOffset: -5 },
+      'Tessa Iacono':  { team: 'Coordination Team',        homeOffset: -5 },
+      'Niccolò Rinaldi': { team: 'Coordination Team',      homeOffset: 2  }
+    }
+  }
+};
+
+let _activeCalendar = 'QC';
+
+function switchCalendar(){
+  const cal = document.getElementById('calendar-select').value;
+  _activeCalendar = cal;
+  // Clear cache so fresh data is fetched for this calendar
+  _cache = {};
+  _tableId = CALENDARS[cal].tableId;
+  _employeeMap = null;
+  // Update team order and labels
+  TEAM_ORDER.length = 0;
+  CALENDARS[cal].teamOrder.forEach(t => TEAM_ORDER.push(t));
+  Object.assign(TEAM_LABELS, CALENDARS[cal].teamLabels);
+  // Update team filter dropdown
+  const tf = document.getElementById('team-filter');
+  tf.innerHTML = '<option value="ALL">All teams</option>';
+  CALENDARS[cal].teamOrder.forEach(t => {
+    const opt = document.createElement('option');
+    opt.value = t;
+    opt.textContent = CALENDARS[cal].teamLabels[t] || t;
+    tf.appendChild(opt);
+  });
+  // Reload
+  const ds = document.getElementById('date-picker').value || dateStr(new Date());
+  loadDate(ds);
+}
 
 const TEAM_ORDER_BASE = ['*QC NY','§QC IN','-QC AMS','-QC WAW','#QC Manager & Supervisor','QC Director','VP'];
 const TEAM_LABELS_EXTRA = { 'VP': 'VP' };
@@ -260,8 +343,9 @@ let _employeeMap = null; // { recXXX: { name, team } }
 
 async function getTableId(){
   if(_tableId) return _tableId;
-  _tableId = 'tblJeFRbjzlOdxnpV'; // Shifts_QC
-  if(!_employeeMap) await loadEmployeeMap();
+  const cal = CALENDARS[_activeCalendar];
+  _tableId = cal ? cal.tableId : 'tblJeFRbjzlOdxnpV';
+  if(!_employeeMap && cal && cal.employeeTableId) await loadEmployeeMap();
   return _tableId;
 }
 
@@ -269,9 +353,13 @@ async function loadEmployeeMap(){
   _employeeMap = {};
   let offset = null;
   do {
-    let url = `https://api.airtable.com/v0/${BASE}/tbl0RqpYKx6zeP2yO?pageSize=100`;
+    const cal = CALENDARS[_activeCalendar];
+    const empTableId = cal && cal.employeeTableId ? cal.employeeTableId : 'tbl0RqpYKx6zeP2yO';
+    const empBase = cal ? cal.baseId : BASE;
+    const empToken = cal ? cal.token : TOKEN;
+    let url = `https://api.airtable.com/v0/${empBase}/${empTableId}?pageSize=100`;
     if(offset) url += '&offset='+offset;
-    const r = await fetch(url, {headers:{Authorization:'Bearer '+TOKEN}});
+    const r = await fetch(url, {headers:{Authorization:'Bearer '+empToken}});
     if(!r.ok) {
       console.warn('Employee map fetch failed:', r.status, await r.text());
       return;
@@ -306,21 +394,122 @@ function resolveEmployees(rawEmployees) {
   }).filter(Boolean);
 }
 
+// Parse time string like "9am-5pm EST" or "8:30am-4:30pm EST"
+function parseCoordTime(str) {
+  if(!str || str.toLowerCase() === 'off' || str.toLowerCase() === 'n/a') return null;
+  // Extract first time range (before parenthesis)
+  const main = str.split('(')[0].trim();
+  const m = main.match(/(\d{1,2}(?::\d{2})?)\s*(am|pm)\s*[-–]\s*(\d{1,2}(?::\d{2})?)\s*(am|pm)/i);
+  if(!m) return null;
+  const parseT = (num, period) => {
+    const parts = num.split(':');
+    let h = parseInt(parts[0]);
+    const min = parts[1] ? parseInt(parts[1]) : 0;
+    if(period.toLowerCase() === 'pm' && h !== 12) h += 12;
+    if(period.toLowerCase() === 'am' && h === 12) h = 0;
+    return h + min/60;
+  };
+  return { start: parseT(m[1], m[2]), end: parseT(m[3], m[4]) };
+}
+
+async function fetchCoordDay(ds) {
+  const cal = CALENDARS.COORD;
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const date = new Date(ds + 'T12:00:00');
+  const dayName = dayNames[date.getDay()];
+
+  // Fetch weekly schedule (static, not date-filtered)
+  const r = await fetch(`https://api.airtable.com/v0/${cal.baseId}/${cal.tableId}?pageSize=100`,
+    {headers:{Authorization:'Bearer '+cal.token}});
+  if(!r.ok) throw new Error('Coord fetch '+r.status);
+  const data = await r.json();
+
+  // Fetch PTO for this date range
+  let ptoNames = new Set();
+  try {
+    const pr = await fetch(
+      `https://api.airtable.com/v0/${cal.baseId}/${cal.ptoTableId}?pageSize=100`,
+      {headers:{Authorization:'Bearer '+cal.token}});
+    if(pr.ok){
+      const pd = await pr.json();
+      (pd.records||[]).forEach(rec => {
+        const f = rec.fields;
+        const start = f['Start Date']||'';
+        const end = f['End Date']||f['Start Date']||'';
+        if(start <= ds && ds <= end) ptoNames.add(f['Person on PTO']||'');
+      });
+    }
+  } catch(e){}
+
+  // Build synthetic records matching QC format
+  const synthRecords = [];
+  (data.records||[]).forEach(rec => {
+    const f = rec.fields;
+    const name = f['Name']||'';
+    if(!name) return;
+    const memberInfo = cal.members[name] || { team: 'Coordination Team', homeOffset: -5 };
+    const dayVal = f[dayName]||'Off';
+    const isOff = !dayVal || dayVal.toLowerCase() === 'off';
+    const isPTO = ptoNames.has(name);
+    const times = isOff ? null : parseCoordTime(dayVal);
+
+    // Convert local start to UTC
+    let startUTC = null, duration = 0;
+    if(times && !isOff){
+      startUTC = ((times.start - memberInfo.homeOffset) + 24) % 24;
+      duration = times.end > times.start ? times.end - times.start : (24 - times.start + times.end);
+    }
+
+    synthRecords.push({
+      id: 'coord_'+name,
+      fields: {
+        'Employees': name,
+        'Name (from Employees)': [name],
+        'Team (from Employees)': [memberInfo.team],
+        'Shift': isPTO ? 'PTO' : (isOff ? 'Off' : 'IN'),
+        'Start Date': startUTC !== null ? new Date(Date.UTC(
+          date.getFullYear(), date.getMonth(), date.getDate(),
+          Math.floor(startUTC), Math.round((startUTC % 1)*60)
+        )).toISOString() : null,
+        'Shift duration': duration,
+        'Comment': times ? `${times.start}:00 - ${times.end}:00` : ''
+      }
+    });
+  });
+  return synthRecords;
+}
+
 async function fetchDay(ds, force){
   if(_cache[ds] && !force) return;
   const tid = await getTableId();
+  const cal = CALENDARS[_activeCalendar];
+  const activeBase = cal ? cal.baseId : BASE;
+  const activeToken = cal ? cal.token : TOKEN;
   let records=[], offset=null;
   do {
-    let url = `https://api.airtable.com/v0/${BASE}/${tid}?filterByFormula=IS_SAME({Start Date},"${ds}","day")&pageSize=100`;
+    let url = `https://api.airtable.com/v0/${activeBase}/${tid}?filterByFormula=IS_SAME({Start Date},"${ds}","day")&pageSize=100`;
     if(offset) url += '&offset='+offset;
-    const r = await fetch(url, {headers:{Authorization:'Bearer '+TOKEN}});
+    const r = await fetch(url, {headers:{Authorization:'Bearer '+activeToken}});
     if(!r.ok) throw new Error('Airtable '+r.status+': '+await r.text());
     const d = await r.json();
     records = records.concat(d.records||[]);
     offset = d.offset||null;
   } while(offset);
 
-  // Also fetch RIV people from RIV table
+  // Coordination team uses a completely different data structure
+  if(_activeCalendar === 'COORD') {
+    _cache[ds] = await fetchCoordDay(ds);
+    lsSave(ds, _cache[ds]);
+    return;
+  }
+
+  // Also fetch RIV people from RIV table (only when in QC mode)
+  if(_activeCalendar !== 'QC') {
+    _cache[ds] = records;
+    lsSave(ds, records);
+    return;
+  }
+  // QC mode: also fetch RIV people from RIV table
   const date = new Date(ds+'T12:00:00');
   const dayOfWeek = date.getDay(); // 0=Sun, 6=Sat
   const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
@@ -937,6 +1126,19 @@ document.addEventListener('DOMContentLoaded', ()=>{
 
   // Initial load — always pass todayStr explicitly
   setTimeout(()=>{ loadDate(todayStr); }, 50);
+
+  // Auto-refresh every 20 minutes
+  setInterval(()=>{
+    const ds = document.getElementById('date-picker').value || todayStr;
+    // Only auto-refresh if viewing today
+    if(ds === todayStr){
+      _cache[ds] = null;
+      fetchDay(ds, true).then(()=>{
+        render(_cache[ds]||[], ds);
+        document.getElementById('lastupdated').textContent = 'Auto-updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+      }).catch(()=>{});
+    }
+  }, 20 * 60 * 1000);
 });
 </script>
 </body>
