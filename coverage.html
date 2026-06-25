@@ -311,6 +311,9 @@ function onCalendarChange(){
     teamFilter.style.display = 'none';
     teamFilter.value = 'ALL';
     updateTzDropdown('QC');
+    _activeCalendar = 'QC'; // default for ALL view
+    _tableId = null;
+    _employeeMap = null;
     const ds = document.getElementById('date-picker').value || dateStr(new Date());
     loadAllCalendars(ds);
     return;
@@ -1102,36 +1105,18 @@ async function loadAllCalendars(ds){
       ...CALENDARS.COORD.teamLabels
     };
 
-    // Temporarily set merged state for render
-    const origOrder = [...TEAM_ORDER];
-    const origLabels = {...TEAM_LABELS};
-    const origCal = _activeCalendar;
-
+    // Set merged state for render - don't restore after (ALL is its own persistent state)
     TEAM_ORDER.length = 0;
     mergedOrder.forEach(t => TEAM_ORDER.push(t));
     Object.keys(TEAM_LABELS).forEach(k => delete TEAM_LABELS[k]);
     Object.assign(TEAM_LABELS, mergedLabels);
-    _activeCalendar = 'QC'; // use QC logic for time conversion
+    _activeCalendar = 'QC'; // use QC logic for time conversion in merged view
 
     render(allRecords, ds);
 
-    // Restore
-    TEAM_ORDER.length = 0;
-    origOrder.forEach(t => TEAM_ORDER.push(t));
-    Object.keys(TEAM_LABELS).forEach(k => delete TEAM_LABELS[k]);
-    Object.assign(TEAM_LABELS, origLabels);
-    _activeCalendar = origCal;
-
     document.getElementById('lastupdated').textContent = 'Updated ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
 
-    // Background prefetch adjacent days
-    setTimeout(()=>{
-      [-1,1,2,3].forEach(n=>{
-        const adj = addDays(new Date(ds+'T12:00:00'),n);
-        const ads = dateStr(adj);
-        if(!_allCalendarCache[ads]) loadAllCalendars(ads).catch(()=>{});
-      });
-    }, 1000);
+    // No background prefetch for ALL view to avoid seizure
 
   } catch(err){
     document.getElementById('main').innerHTML = `<div class="error"><strong>Could not load data:</strong> ${err.message}</div>`;
