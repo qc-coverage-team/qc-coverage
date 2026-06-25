@@ -116,15 +116,14 @@ select,input[type=date]{font-size:13px;padding:6px 10px;border-radius:8px;border
           <option value="IST">IST — India</option>
           <option value="UTC">UTC</option>
         </select>
-        <select id="team-filter">
-          <option value="ALL">All teams</option>
-          <option value="*QC NY">QC NY</option>
-          <option value="§QC IN">QC IN</option>
-          <option value="-QC AMS">QC AMS</option>
-          <option value="-QC WAW">QC WAW</option>
-          <option value="#QC Manager & Supervisor">Managers</option>
-          <option value="QC Director">Director</option>
-          <option value="VP">VP</option>
+        <select id="calendar-select" onchange="onCalendarChange()">
+          <option value="ALL">All Teams</option>
+          <option value="QC">QC Team</option>
+          <option value="RIV">RIV Team</option>
+          <option value="COORD">Coordination Team</option>
+        </select>
+        <select id="team-filter" style="display:none">
+          <option value="ALL">All</option>
         </select>
         <select id="calendar-select" onchange="switchCalendar()">
           <option value="QC">QC Team</option>
@@ -230,36 +229,77 @@ const CALENDARS = {
 
 let _activeCalendar = 'QC';
 
-function switchCalendar(){
+// Sub-team options for each calendar
+const CALENDAR_SUBTEAMS = {
+  QC: [
+    {value:'*QC NY', label:'QC NY'},
+    {value:'§QC IN', label:'QC India'},
+    {value:'-QC AMS', label:'QC Amsterdam'},
+    {value:'-QC WAW', label:'QC Warsaw'},
+    {value:'#QC Manager & Supervisor', label:'Managers'},
+    {value:'QC Director', label:'Director'},
+    {value:'VP', label:'VP'}
+  ],
+  RIV: [
+    {value:'#RIV Team', label:'RIV Team'},
+    {value:'RIV Team Manager', label:'RIV Manager'},
+    {value:'RIV Team Sr Director', label:'RIV Sr Director'}
+  ],
+  COORD: [
+    {value:'Coordination Team', label:'Coordination Team'},
+    {value:'Coordination Supervisor', label:'Supervisor'},
+    {value:'Coordination Manager', label:'Manager'}
+  ]
+};
+
+function onCalendarChange(){
   const calKey = document.getElementById('calendar-select').value;
-  const cal = CALENDARS[calKey];
-  _activeCalendar = calKey;
-  // Clear cache so fresh data is fetched for this calendar
-  _cache = {};
-  _tableId = null; // force reset so getTableId picks up new calendar
-  _employeeMap = null;
-  // Update team order and labels
-  TEAM_ORDER.length = 0;
-  // Use spread to ensure correct order from config
-  const orderedTeams = [...cal.teamOrder];
-  orderedTeams.forEach(t => TEAM_ORDER.push(t));
-  console.log('Team order set to:', TEAM_ORDER.join(', '));
-  // Reset TEAM_LABELS and TEAM_TZ to match new calendar
-  Object.keys(TEAM_LABELS).forEach(k => delete TEAM_LABELS[k]);
-  Object.assign(TEAM_LABELS, cal.teamLabels);
-  // Update team filter dropdown
-  const tf = document.getElementById('team-filter');
-  tf.innerHTML = '<option value="ALL">All teams</option>';
-  cal.teamOrder.forEach(t => {
+  const teamFilter = document.getElementById('team-filter');
+
+  if(calKey === 'ALL'){
+    // Show all calendars - hide sub-team filter
+    teamFilter.style.display = 'none';
+    teamFilter.value = 'ALL';
+    // Load QC as default when ALL is selected
+    setActiveCalendar('QC');
+    // But show all teams across all calendars - for now just show QC
+    // TODO: merge all calendars
+    const ds = document.getElementById('date-picker').value || dateStr(new Date());
+    loadDate(ds);
+    return;
+  }
+
+  // Update sub-team dropdown
+  const subteams = CALENDAR_SUBTEAMS[calKey] || [];
+  teamFilter.innerHTML = '<option value="ALL">All</option>';
+  subteams.forEach(s => {
     const opt = document.createElement('option');
-    opt.value = t;
-    opt.textContent = cal.teamLabels[t] || t;
-    tf.appendChild(opt);
+    opt.value = s.value;
+    opt.textContent = s.label;
+    teamFilter.appendChild(opt);
   });
-  // Reload
+  teamFilter.style.display = subteams.length > 0 ? '' : 'none';
+  teamFilter.value = 'ALL';
+
+  setActiveCalendar(calKey);
   const ds = document.getElementById('date-picker').value || dateStr(new Date());
   loadDate(ds);
 }
+
+function setActiveCalendar(calKey){
+  const cal = CALENDARS[calKey];
+  if(!cal) return;
+  _activeCalendar = calKey;
+  _cache = {};
+  _tableId = null;
+  _employeeMap = null;
+  TEAM_ORDER.length = 0;
+  cal.teamOrder.forEach(t => TEAM_ORDER.push(t));
+  Object.keys(TEAM_LABELS).forEach(k => delete TEAM_LABELS[k]);
+  Object.assign(TEAM_LABELS, cal.teamLabels);
+}
+
+function switchCalendar(){ onCalendarChange(); }
 
 const TEAM_ORDER_BASE = ['*QC NY','§QC IN','-QC AMS','-QC WAW','#QC Manager & Supervisor','QC Director','VP'];
 const TEAM_LABELS_EXTRA = { 'VP': 'VP' };
@@ -995,10 +1035,87 @@ function getWeekDays(ds){
   return Array.from({length:7},(_,i)=>{ const x=new Date(monday); x.setDate(monday.getDate()+i); return dateStr(x); });
 }
 
+async function renderCoordWeek(days, todayDs) {
+  const cal = CALENDARS.COORD;
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const statusMap = { 'off': 'wk-off', 'in': 'wk-in', 'pto': 'wk-pto' };
+  const labelMap  = { 'off': 'Off', 'in': 'In', 'pto': 'PTO' };
+
+  // Fetch weekly schedule
+  const r = await fetch(`https://api.airtable.com/v0/${cal.baseId}/${cal.tableId}?pageSize=100`,
+    {headers:{Authorization:'Bearer '+cal.token}});
+  if(!r.ok){ document.getElementById('main').innerHTML='<div class="error">Could not load Coordination schedule</div>'; return; }
+  const data = await r.json();
+
+  // Fetch PTO records
+  const ptoDates = {};
+  try {
+    const pr = await fetch(`https://api.airtable.com/v0/${cal.baseId}/${cal.ptoTableId}?pageSize=100`,
+      {headers:{Authorization:'Bearer '+cal.token}});
+    if(pr.ok){
+      const pd = await pr.json();
+      (pd.records||[]).forEach(rec => {
+        const f = rec.fields;
+        const name = f['Person on PTO']||'';
+        const start = f['Start Date']||'';
+        const end = f['End Date']||start;
+        if(!ptoDates[name]) ptoDates[name] = [];
+        ptoDates[name].push({start, end});
+      });
+    }
+  } catch(e){}
+
+  const dayNamesShort = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  let html = '<div class="week-grid"><table class="week-table"><thead><tr><th class="name-col">Person</th>';
+  days.forEach((d,i) => {
+    const isToday = d === todayDs;
+    const label = dayNamesShort[i]+'<br><span style="font-weight:400;color:#bbb">'+d.slice(5).replace('-','/')+'</span>';
+    html += `<th class="${isToday?'today-col':''}" style="${isToday?'color:#2d6010':''}">${label}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  TEAM_ORDER.forEach(team => {
+    const members = data.records.filter(rec => {
+      const name = rec.fields['Name']||'';
+      return cal.members[name] && cal.members[name].team === team;
+    });
+    if(!members.length) return;
+    html += `<tr><td class="team-header" colspan="${days.length+1}">${TEAM_LABELS[team]||team}</td></tr>`;
+    members.forEach(rec => {
+      const name = rec.fields['Name']||'';
+      html += `<tr><td class="name-cell">${name}</td>`;
+      days.forEach(d => {
+        const date = new Date(d+'T12:00:00');
+        const dayName = dayNames[date.getDay()];
+        const isToday = d === todayDs;
+        const val = rec.fields[dayName]||'Off';
+        const isOff = !val || val.toLowerCase() === 'off';
+        // Check PTO
+        const isPTO = (ptoDates[name]||[]).some(p => p.start <= d && d <= p.end);
+        const status = isPTO ? 'pto' : (isOff ? 'off' : 'in');
+        const cls = statusMap[status]||'wk-off';
+        const lbl = labelMap[status]||'Off';
+        html += `<td class="${isToday?'today-col':''}"><span class="${cls}">${lbl}</span></td>`;
+      });
+      html += '</tr>';
+    });
+  });
+
+  html += '</tbody></table></div>';
+  document.getElementById('main').innerHTML = html;
+}
+
 async function renderWeek(ds){
   const days = getWeekDays(ds);
   const todayDs = dateStr(new Date());
   document.getElementById('main').innerHTML = '<div class="loading">Loading week...</div>';
+
+  // COORD special case: use dedicated week renderer
+  if(_activeCalendar === 'COORD') {
+    await renderCoordWeek(days, todayDs);
+    return;
+  }
+
   // Fetch all days we don't have
   await Promise.all(days.map(d => _cache[d] ? Promise.resolve() : fetchDay(d).catch(()=>{})));
 
@@ -1135,14 +1252,24 @@ document.addEventListener('DOMContentLoaded', ()=>{
     localStorage.setItem('qc_tz', activeTz());
     const tf = document.getElementById('team-filter');
     if(tf) localStorage.setItem('qc_team', tf.value);
+    const cs = document.getElementById('calendar-select');
+    if(cs) localStorage.setItem('qc_calendar', cs.value);
     const btn = document.getElementById('default-btn');
     btn.textContent = '✓ Saved!';
     setTimeout(()=>{ btn.textContent = '★ Set default'; }, 1500);
   };
 
-  // Restore saved team filter
+  // Restore saved calendar and team filter
+  const savedCalendar = localStorage.getItem('qc_calendar');
+  if(savedCalendar){
+    const cs = document.getElementById('calendar-select');
+    if(cs){ cs.value = savedCalendar; onCalendarChange(); }
+  } else {
+    // Default to QC
+    onCalendarChange();
+  }
   const savedTeam = localStorage.getItem('qc_team');
-  if(savedTeam){ const tf = document.getElementById('team-filter'); if(tf) tf.value = savedTeam; }
+  if(savedTeam){ const tf = document.getElementById('team-filter'); if(tf && tf.style.display !== 'none') tf.value = savedTeam; }
 
   // Initial load — always pass todayStr explicitly
   setTimeout(()=>{ loadDate(todayStr); }, 50);
