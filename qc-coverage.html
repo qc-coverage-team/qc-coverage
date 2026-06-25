@@ -421,14 +421,16 @@ function shiftStatus(shift){
 }
 
 function teamForName(name, teamFromAirtable){
-  // For RIV calendar, use location-based team mapping
+  // For RIV calendar, always use location-based team mapping (ignore Airtable team field)
   if(_activeCalendar === 'RIV') {
     const rivTeams = CALENDARS.RIV.memberTeams;
     if(rivTeams[name]) return rivTeams[name];
-    // Try partial match
-    const match = Object.keys(rivTeams).find(k => k.split(' ').some(part => part.length > 3 && name.toLowerCase().includes(part.toLowerCase())));
+    // Try partial match on last name
+    const match = Object.keys(rivTeams).find(k =>
+      k.split(' ').some(part => part.length > 3 && name.toLowerCase().includes(part.toLowerCase()))
+    );
     if(match) return rivTeams[match];
-    return '#RIV Team';
+    return 'RIV US'; // fallback
   }
   if(teamFromAirtable) return teamFromAirtable;
   const lower = name.toLowerCase();
